@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 thread_local GarbageCollector *GarbageCollector::active = nullptr;
 
