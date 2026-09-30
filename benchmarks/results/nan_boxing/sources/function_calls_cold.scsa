@@ -1,0 +1,23 @@
+
+FUNCTION transform(value)
+    RETURN value * 3 + 1
+END transform
+FUNCTION benchmark(n)
+    checksum = 0
+    FOR i = 0 TO n - 1
+        checksum = checksum + transform(i - INT(i / 97) * 97)
+    END FOR
+    RETURN checksum
+END benchmark
+
+checksums = []
+started = TIME()
+FOR sample = 1 TO 1
+    checksum = benchmark(100000)
+    checksums.append(checksum)
+END FOR
+elapsed = TIME() - started
+FOR checksum IN checksums
+    PRINT("Checksum: " + STRING(checksum))
+END FOR
+PRINT("BatchKernel: " + STRING(elapsed))

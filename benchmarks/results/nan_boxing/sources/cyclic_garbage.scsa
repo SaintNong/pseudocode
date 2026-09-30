@@ -1,0 +1,29 @@
+
+FUNCTION benchmark(n)
+    checksum = 0
+    FOR i = 0 TO n - 1
+        values = []
+        values.append(values)
+        dict = {}
+        dict["array"] = values
+        values.append(dict)
+        checksum = checksum + values.length
+    END FOR
+    RETURN checksum
+END benchmark
+
+FOR warmup = 1 TO 2
+    benchmark(20000)
+END FOR
+
+checksums = []
+started = TIME()
+FOR sample = 1 TO 5
+    checksum = benchmark(20000)
+    checksums.append(checksum)
+END FOR
+elapsed = TIME() - started
+FOR checksum IN checksums
+    PRINT("Checksum: " + STRING(checksum))
+END FOR
+PRINT("BatchKernel: " + STRING(elapsed))

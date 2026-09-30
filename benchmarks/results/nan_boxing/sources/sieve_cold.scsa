@@ -1,0 +1,36 @@
+
+FUNCTION benchmark(n)
+    primes = [TRUE] * (n + 1)
+    primes[0] = FALSE
+    primes[1] = FALSE
+    p = 2
+    WHILE p * p <= n
+        IF primes[p] THEN
+            i = p * p
+            WHILE i <= n
+                primes[i] = FALSE
+                i = i + p
+            END WHILE
+        END IF
+        p = p + 1
+    END WHILE
+    checksum = 0
+    FOR i = 0 TO n
+        IF primes[i] THEN
+            checksum = checksum + i
+        END IF
+    END FOR
+    RETURN checksum
+END benchmark
+
+checksums = []
+started = TIME()
+FOR sample = 1 TO 1
+    checksum = benchmark(100000)
+    checksums.append(checksum)
+END FOR
+elapsed = TIME() - started
+FOR checksum IN checksums
+    PRINT("Checksum: " + STRING(checksum))
+END FOR
+PRINT("BatchKernel: " + STRING(elapsed))

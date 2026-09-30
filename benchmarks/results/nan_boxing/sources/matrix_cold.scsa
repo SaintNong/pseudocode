@@ -1,0 +1,38 @@
+
+FUNCTION benchmark(n)
+    a = []
+    b = []
+    FOR i = 0 TO n - 1
+        rowA = []
+        rowB = []
+        FOR j = 0 TO n - 1
+            rowA.append(i * 7 + j * 3 - INT((i * 7 + j * 3) / 10) * 10 + 1)
+            rowB.append(i * 5 + j * 9 - INT((i * 5 + j * 9) / 10) * 10 + 1)
+        END FOR
+        a.append(rowA)
+        b.append(rowB)
+    END FOR
+    checksum = 0
+    FOR i = 0 TO n - 1
+        FOR j = 0 TO n - 1
+            value = 0
+            FOR k = 0 TO n - 1
+                value = value + a[i][k] * b[k][j]
+            END FOR
+            checksum = checksum + value
+        END FOR
+    END FOR
+    RETURN checksum
+END benchmark
+
+checksums = []
+started = TIME()
+FOR sample = 1 TO 1
+    checksum = benchmark(80)
+    checksums.append(checksum)
+END FOR
+elapsed = TIME() - started
+FOR checksum IN checksums
+    PRINT("Checksum: " + STRING(checksum))
+END FOR
+PRINT("BatchKernel: " + STRING(elapsed))

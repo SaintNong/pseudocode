@@ -1,0 +1,23 @@
+
+FUNCTION benchmark(n)
+    checksum = 0
+    FOR i = 0 TO n - 1
+        checksum = checksum + i
+        IF checksum >= 1000003 THEN
+            checksum = checksum - 1000003
+        END IF
+    END FOR
+    RETURN checksum
+END benchmark
+
+checksums = []
+started = TIME()
+FOR sample = 1 TO 1
+    checksum = benchmark(500000)
+    checksums.append(checksum)
+END FOR
+elapsed = TIME() - started
+FOR checksum IN checksums
+    PRINT("Checksum: " + STRING(checksum))
+END FOR
+PRINT("BatchKernel: " + STRING(elapsed))

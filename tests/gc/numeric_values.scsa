@@ -22,6 +22,27 @@ PRINT(STRING(FLOAT("0.000001"))) # EXPECT: 0.000001
 PRINT(1 == 1.0) # EXPECT: true
 PRINT(TRUE == 1) # EXPECT: false
 
+# These NaN payloads overlap every reserved boxing prefix before canonicalization.
+FOR payload IN ["nan(0x1000000000000)", "nan(0x2000000000000)", "nan(0x3000000000000)", "nan(0x4000000000000)", "nan(0x5000000000000)", "nan(0x6000000000000)", "nan(0x7000000000000)", "-nan(0x1000000000000)", "-nan(0x2000000000000)", "-nan(0x3000000000000)", "-nan(0x4000000000000)", "-nan(0x5000000000000)", "-nan(0x6000000000000)", "-nan(0x7000000000000)"]
+    PRINT(TYPE(FLOAT(payload)))
+END FOR
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+# EXPECT: FLOAT
+PRINT(FLOAT("1e308") > FLOAT("1e307")) # EXPECT: true
+PRINT(FLOAT("-1e308") < 0.0) # EXPECT: true
+
 # Preserve distinct key types while carrying values with every numeric tag.
 values = {1: FLOAT("nan"), TRUE: FLOAT("inf"), "1": INT("-2147483648")}
 PRINT(values.length) # EXPECT: 3

@@ -1,0 +1,23 @@
+
+FUNCTION benchmark(n)
+    IF n < 2 THEN
+        RETURN n
+    END IF
+    RETURN benchmark(n - 1) + benchmark(n - 2)
+END benchmark
+
+FOR warmup = 1 TO 2
+    benchmark(25)
+END FOR
+
+checksums = []
+started = TIME()
+FOR sample = 1 TO 5
+    checksum = benchmark(25)
+    checksums.append(checksum)
+END FOR
+elapsed = TIME() - started
+FOR checksum IN checksums
+    PRINT("Checksum: " + STRING(checksum))
+END FOR
+PRINT("BatchKernel: " + STRING(elapsed))
