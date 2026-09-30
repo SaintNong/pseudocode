@@ -550,7 +550,12 @@ inline std::string stringify(const RuntimeValue &v) {
 
     // Handle Doubles (with trailing zero trimming)
     if (v.is<double>()) {
-        std::string text = std::to_string(v.as<double>());
+        const double number = v.as<double>();
+        if (std::isnan(number))
+            return std::signbit(number) ? "-nan" : "nan";
+        if (std::isinf(number))
+            return std::signbit(number) ? "-inf" : "inf";
+        std::string text = std::to_string(number);
         text.erase(text.find_last_not_of('0') + 1, std::string::npos);
         if (text.back() == '.')
             text.pop_back();
