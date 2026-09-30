@@ -1,0 +1,11 @@
+# Exercises primitive integer values, local variables and loop control.
+FUNCTION numeric_loop(n)
+    checksum = 0
+    FOR i = 0 TO n - 1
+        checksum = checksum + 1
+    END FOR
+    RETURN checksum
+END numeric_loop
+
+checksum = numeric_loop(250000)
+PRINT("Checksum: " + STRING(checksum))

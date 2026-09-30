@@ -22,7 +22,7 @@ private:
     bool lastAssignWasNewLocal = false;
 
     Compiler *enclosing = nullptr;
-    std::shared_ptr<CompiledFunction> currentFn;
+    CompiledFunction *currentFn;
 
     Chunk &currentChunk() {
         return *currentFn->chunk;
@@ -73,6 +73,6 @@ private:
 public:
     Compiler(ErrorReporter &reporter, Compiler *enclosing = nullptr, std::string fnName = "");
 
-    std::shared_ptr<CompiledFunction> compile(const std::vector<StmtPtr> &statements);
-    std::shared_ptr<CompiledFunction> compileExpressionOnly(Expr *expr);
+    CompiledFunction *compile(const std::vector<StmtPtr> &statements);
+    CompiledFunction *compileExpressionOnly(Expr *expr);
 };

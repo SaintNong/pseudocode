@@ -2,6 +2,11 @@
 
 This document outlines the architecture and execution model of the SCSA Pseudocode Bytecode Virtual Machine (VM).
 
+On the NaN-boxing experiment branch, runtime slots are 64-bit tagged words and
+runtime objects are managed by a non-moving mark-and-sweep collector. See
+[runtime values and ownership](RUNTIME_VALUES.md) for encoding, root tracing,
+collection boundaries and extension rules.
+
 ## Compilation Pipeline
 
 The interpreter executes code through a multi-stage compilation pipeline:

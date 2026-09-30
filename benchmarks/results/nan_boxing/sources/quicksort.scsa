@@ -1,0 +1,56 @@
+
+FUNCTION partition(items, low, high)
+    pivot = items[high]
+    i = low - 1
+    FOR j = low TO high - 1
+        IF items[j] < pivot THEN
+            i = i + 1
+            temp = items[i]
+            items[i] = items[j]
+            items[j] = temp
+        END IF
+    END FOR
+    temp = items[i + 1]
+    items[i + 1] = items[high]
+    items[high] = temp
+    RETURN i + 1
+END partition
+FUNCTION quicksort(items, low, high)
+    IF low < high THEN
+        pivot = partition(items, low, high)
+        quicksort(items, low, pivot - 1)
+        quicksort(items, pivot + 1, high)
+    END IF
+    RETURN items
+END quicksort
+FUNCTION benchmark(n)
+    items = []
+    FOR i = 0 TO n - 1
+        items.append(i * 7919 + 17 - INT((i * 7919 + 17) / 10007) * 10007)
+    END FOR
+    quicksort(items, 0, n - 1)
+    checksum = 0
+    FOR i = 0 TO n - 1
+        checksum = checksum + (i + 1) * items[i]
+        IF checksum >= 1000000007 THEN
+            checksum = checksum - 1000000007
+        END IF
+    END FOR
+    RETURN checksum
+END benchmark
+
+FOR warmup = 1 TO 2
+    benchmark(8000)
+END FOR
+
+checksums = []
+started = TIME()
+FOR sample = 1 TO 5
+    checksum = benchmark(8000)
+    checksums.append(checksum)
+END FOR
+elapsed = TIME() - started
+FOR checksum IN checksums
+    PRINT("Checksum: " + STRING(checksum))
+END FOR
+PRINT("BatchKernel: " + STRING(elapsed))

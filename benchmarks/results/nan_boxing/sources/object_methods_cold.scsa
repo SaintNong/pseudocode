@@ -1,0 +1,33 @@
+
+CLASS Counter
+    ATTRIBUTES:
+        value = 0
+    METHODS:
+        FUNCTION Counter(value)
+            this.value = value
+        END Counter
+        FUNCTION bump()
+            this.value = this.value + 1
+            RETURN this.value
+        END bump
+END Counter
+FUNCTION benchmark(n)
+    checksum = 0
+    FOR i = 0 TO n - 1
+        counter = NEW Counter(i)
+        checksum = checksum + counter.bump()
+    END FOR
+    RETURN checksum
+END benchmark
+
+checksums = []
+started = TIME()
+FOR sample = 1 TO 1
+    checksum = benchmark(30000)
+    checksums.append(checksum)
+END FOR
+elapsed = TIME() - started
+FOR checksum IN checksums
+    PRINT("Checksum: " + STRING(checksum))
+END FOR
+PRINT("BatchKernel: " + STRING(elapsed))

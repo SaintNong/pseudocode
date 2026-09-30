@@ -8,7 +8,7 @@
 #include <vector>
 
 struct CallFrame {
-    std::shared_ptr<CompiledFunction> function;
+    CompiledFunction *function;
     const uint8_t *ip;
     size_t slotsBase;
     EnvironmentPtr closure;
@@ -42,8 +42,9 @@ private:
     void execute();
 
 public:
+    void trace(GarbageCollector &gc) const;
     VM(Interpreter &interpreter, EnvironmentPtr globals);
 
-    RuntimeValue run(std::shared_ptr<CompiledFunction> function,
-                     const std::vector<RuntimeValue> &args, EnvironmentPtr closure = nullptr);
+    RuntimeValue run(CompiledFunction *function, const std::vector<RuntimeValue> &args,
+                     EnvironmentPtr closure = nullptr);
 };

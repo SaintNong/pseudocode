@@ -1,0 +1,65 @@
+# Retained native receivers, cycles, higher-order methods and constructor temporaries.
+FUNCTION savedAppend()
+    values = [1]
+    RETURN values.append
+END savedAppend
+append = savedAppend()
+PRINT(append(2)) # EXPECT: [1, 2]
+
+FUNCTION savedGet()
+    values = {"answer": 42}
+    RETURN values.get
+END savedGet
+get = savedGet()
+PRINT(get("answer")) # EXPECT: 42
+
+FUNCTION makeArgument()
+    RETURN ["argument"]
+END makeArgument
+
+CLASS Parent
+    ATTRIBUTES:
+        defaults = ["default"]
+    METHODS:
+        FUNCTION Parent(value)
+            this.value = value
+        END Parent
+        FUNCTION read()
+            RETURN this.value[0] + "-" + this.defaults[0]
+        END read
+END Parent
+
+CLASS Child : Parent
+    METHODS:
+        FUNCTION Child(value)
+            this.super().Parent(value)
+        END Child
+END Child
+
+FUNCTION savedRead()
+    instance = NEW Child(makeArgument())
+    RETURN instance.read
+END savedRead
+read = savedRead()
+PRINT(read()) # EXPECT: argument-default
+
+FUNCTION garbage(n)
+    FOR i = 1 TO n
+        values = []
+        values.append(values)
+        dict = {}
+        dict["self"] = dict
+        values.append(dict)
+        dict["array"] = values
+    END FOR
+    RETURN n
+END garbage
+PRINT(garbage(200)) # EXPECT: 200
+PRINT(read()) # EXPECT: argument-default
+PRINT(append(3)) # EXPECT: [1, 2, 3]
+
+PRINT(TYPE(FLOAT("nan"))) # EXPECT: FLOAT
+PRINT(FLOAT("nan") == FLOAT("nan")) # EXPECT: false
+PRINT(TYPE(FLOAT("inf"))) # EXPECT: FLOAT
+PRINT(FLOAT("inf") > 1.0) # EXPECT: true
+PRINT(STRING(FLOAT("-nan"))) # EXPECT: -nan

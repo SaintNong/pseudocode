@@ -1,23 +1,40 @@
 #include "runtime.hpp"
 #include "interpreter.hpp"
 
-UserFunction::UserFunction(std::shared_ptr<CompiledFunction> compiledFn,
-                           std::shared_ptr<Environment> closure,
-                           std::shared_ptr<UserClass> definingClass)
+void CompiledFunction::trace(GarbageCollector &gc) {
+    gc.mark(chunk);
+}
+
+void UserFunction::trace(GarbageCollector &gc) {
+    gc.mark(compiledFn);
+    gc.mark(closure);
+    gc.mark(definingClass);
+}
+
+void UserClass::trace(GarbageCollector &gc) {
+    gc.mark(superclass);
+    for (const auto &entry : methods)
+        gc.mark(entry.second);
+    for (const auto &entry : defaultFields)
+        gc.mark(entry.second);
+}
+
+UserFunction::UserFunction(CompiledFunction *compiledFn, Environment *closure,
+                           UserClass *definingClass)
     : compiledFn(compiledFn), closure(closure), definingClass(definingClass) {
 }
 
-std::shared_ptr<UserFunction> UserFunction::bind(std::shared_ptr<Instance> instance) {
-    auto environment = std::make_shared<Environment>(closure);
+UserFunction *UserFunction::bind(Instance *instance) {
+    auto environment = gcNew<Environment>(closure);
     RuntimeValue instanceValue;
     if (instance->superclassContext == nullptr) {
-        auto boundInstance  = std::make_shared<Instance>(*instance, definingClass);
+        auto boundInstance  = gcNew<Instance>(*instance, definingClass);
         instanceValue.value = boundInstance;
     } else {
         instanceValue.value = instance;
     }
     environment->define("this", instanceValue);
-    return std::make_shared<UserFunction>(compiledFn, environment, definingClass);
+    return gcNew<UserFunction>(compiledFn, environment, definingClass);
 }
 
 int UserFunction::arity() {
@@ -47,10 +64,10 @@ std::string NativeFunction::toString() {
     return "<NATIVE FUNCTION>";
 }
 
-UserClass::UserClass(const std::string &n, std::shared_ptr<UserClass> s) : name(n), superclass(s) {
+UserClass::UserClass(const std::string &n, UserClass *s) : name(n), superclass(s) {
 }
 
-std::shared_ptr<UserClass> UserClass::getSuperclass() const {
+UserClass *UserClass::getSuperclass() const {
     return superclass;
 }
 
@@ -58,18 +75,21 @@ std::string UserClass::getName() const {
     return name;
 }
 
-void UserClass::addMethod(const std::string &methodName, std::shared_ptr<Callable> method) {
-    methods[methodName] = method;
+void UserClass::addMethod(const std::string &methodName, Callable *method) {
+    const size_t previous = retainedBytes();
+    methods[methodName]   = method;
+    accountGrowth(previous);
 }
 
-void UserClass::addField(const std::string &fieldName,
-                         std::shared_ptr<CompiledFunction> valueFunc) {
+void UserClass::addField(const std::string &fieldName, CompiledFunction *valueFunc) {
+    const size_t previous    = retainedBytes();
     defaultFields[fieldName] = valueFunc;
+    accountGrowth(previous);
 }
 
-std::shared_ptr<UserFunction> UserClass::findMethod(const std::string &methodName) {
+UserFunction *UserClass::findMethod(const std::string &methodName) {
     if (methods.count(methodName)) {
-        return std::dynamic_pointer_cast<UserFunction>(methods.at(methodName));
+        return dynamic_cast<UserFunction *>(methods.at(methodName));
     }
     if (superclass != nullptr) {
         return superclass->findMethod(methodName);
@@ -77,8 +97,8 @@ std::shared_ptr<UserFunction> UserClass::findMethod(const std::string &methodNam
     return nullptr;
 }
 
-std::shared_ptr<UserFunction> UserClass::findConstructor() {
-    std::shared_ptr<UserFunction> constructor = findMethod(name);
+UserFunction *UserClass::findConstructor() {
+    UserFunction *constructor = findMethod(name);
     if (constructor != nullptr)
         return constructor;
     if (superclass != nullptr) {
@@ -95,8 +115,13 @@ int UserClass::arity() {
 }
 
 RuntimeValue UserClass::call(Interpreter &interpreter, std::vector<RuntimeValue> arguments) {
-    auto instance =
-        std::make_shared<Instance>(std::static_pointer_cast<Callable>(shared_from_this()));
+    auto instance = gcNew<Instance>(static_cast<Callable *>(this));
+    GCRoot root([&](GarbageCollector &gc) {
+        gc.mark(this);
+        gc.mark(instance);
+        for (const auto &argument : arguments)
+            argument.trace(gc);
+    });
     initializeFields(interpreter, instance);
     auto constructor = findConstructor();
     if (constructor != nullptr) {
@@ -105,7 +130,7 @@ RuntimeValue UserClass::call(Interpreter &interpreter, std::vector<RuntimeValue>
     return RuntimeValue{instance};
 }
 
-void UserClass::initializeFields(Interpreter &interpreter, std::shared_ptr<Instance> instance) {
+void UserClass::initializeFields(Interpreter &interpreter, Instance *instance) {
     if (superclass != nullptr) {
         superclass->initializeFields(interpreter, instance);
     }

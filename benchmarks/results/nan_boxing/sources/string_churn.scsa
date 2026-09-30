@@ -1,0 +1,25 @@
+
+FUNCTION benchmark(n)
+    checksum = 0
+    FOR i = 0 TO n - 1
+        value = "scsa-" + STRING(i)
+        checksum = checksum + value.length
+    END FOR
+    RETURN checksum
+END benchmark
+
+FOR warmup = 1 TO 2
+    benchmark(50000)
+END FOR
+
+checksums = []
+started = TIME()
+FOR sample = 1 TO 5
+    checksum = benchmark(50000)
+    checksums.append(checksum)
+END FOR
+elapsed = TIME() - started
+FOR checksum IN checksums
+    PRINT("Checksum: " + STRING(checksum))
+END FOR
+PRINT("BatchKernel: " + STRING(elapsed))
