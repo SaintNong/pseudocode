@@ -76,11 +76,15 @@ std::string UserClass::getName() const {
 }
 
 void UserClass::addMethod(const std::string &methodName, Callable *method) {
-    methods[methodName] = method;
+    const size_t previous = retainedBytes();
+    methods[methodName]   = method;
+    accountGrowth(previous);
 }
 
 void UserClass::addField(const std::string &fieldName, CompiledFunction *valueFunc) {
+    const size_t previous    = retainedBytes();
     defaultFields[fieldName] = valueFunc;
+    accountGrowth(previous);
 }
 
 UserFunction *UserClass::findMethod(const std::string &methodName) {

@@ -70,8 +70,11 @@ Collection happens at bytecode instruction boundaries. Allocations made while
 an instruction or the compiler is holding C++ temporaries never collect.
 Collection is requested after roughly 1 MiB of newly allocated objects by
 default; after a sweep the allowance grows with the estimated live heap.
-Container capacity changes and allocator bookkeeping are not fully accounted
-for, so this is an allocation budget, not a strict memory limit.
+Array and chunk capacity growth, dictionary nodes/buckets/key storage, and
+field/environment/class map growth also contribute to the budget. Otherwise a
+few large dictionaries could retain substantial garbage without ever requesting
+collection. Map-node sizes are estimates, and string-key buffers and allocator
+bookkeeping are not fully accounted for; this is not a strict memory limit.
 Compilation and individual native operations can temporarily exceed it.
 Every remaining allocation is destroyed when its interpreter is destroyed.
 
@@ -98,7 +101,8 @@ Tests are written in SCSA and Python. CTest runs the full integration suite both
 normally and under GC stress. Language tests cover signed integer limits, NaNs
 and negative NaNs, infinities, negative zero, distinct dictionary key types and
 native captures. Python subprocess checks use collector diagnostics to verify
-cyclic reclamation, survival and reclamation of a 100,000-edge graph, and REPL
+cyclic reclamation, survival and reclamation of a 100,000-edge graph, collection
+driven by large container buffers with few object allocations, and REPL
 recovery after repeated VM errors. Slot-size and numeric-format requirements are
 compile-time assertions in the implementation. The branch is also checked with
 AddressSanitizer, UndefinedBehaviorSanitizer and leak detection.

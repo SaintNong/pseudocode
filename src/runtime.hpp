@@ -184,6 +184,27 @@ static_assert(sizeof(RuntimeValue) == 8, "Every runtime slot must fit in one wor
 static_assert(std::is_trivially_copyable_v<RuntimeValue>);
 
 struct Array final : HeapObject, std::vector<RuntimeValue> {
+    void push_back(RuntimeValue value) {
+        const size_t previous = retainedBytes();
+        std::vector<RuntimeValue>::push_back(value);
+        accountGrowth(previous);
+    }
+    void reserve(size_t count) {
+        const size_t previous = retainedBytes();
+        std::vector<RuntimeValue>::reserve(count);
+        accountGrowth(previous);
+    }
+    void resize(size_t count) {
+        const size_t previous = retainedBytes();
+        std::vector<RuntimeValue>::resize(count);
+        accountGrowth(previous);
+    }
+    template <typename Iterator>
+    void insert(const_iterator position, Iterator first, Iterator last) {
+        const size_t previous = retainedBytes();
+        std::vector<RuntimeValue>::insert(position, first, last);
+        accountGrowth(previous);
+    }
     void trace(GarbageCollector &gc) override {
         for (const auto &value : *this)
             value.trace(gc);
@@ -194,9 +215,19 @@ struct Array final : HeapObject, std::vector<RuntimeValue> {
 };
 
 struct Fields final : HeapObject, std::map<std::string, RuntimeValue> {
+    RuntimeValue &operator[](const std::string &name) {
+        const size_t previous = retainedBytes();
+        RuntimeValue &result  = std::map<std::string, RuntimeValue>::operator[](name);
+        accountGrowth(previous);
+        return result;
+    }
     void trace(GarbageCollector &gc) override {
         for (const auto &entry : *this)
             entry.second.trace(gc);
+    }
+    size_t retainedBytes() const override {
+        return allocationSize +
+               size() * (sizeof(std::string) + sizeof(RuntimeValue) + 4 * sizeof(void *));
     }
 };
 
@@ -228,14 +259,15 @@ inline RuntimeValue fromDictKey(const DictKey &key) {
  * Dictionary Type
  * An ordered collection of key-value pairs. Keys must be strings, integers, or booleans.
  */
-struct Dictionary : HeapObject {
+struct Dictionary final : HeapObject {
     void trace(GarbageCollector &gc) override {
         for (const auto &entry : entries)
             entry.second.trace(gc);
     }
     size_t retainedBytes() const override {
         return allocationSize + keys.capacity() * sizeof(DictKey) +
-               entries.size() * (sizeof(DictKey) + sizeof(RuntimeValue) + 2 * sizeof(void *));
+               entries.size() * (sizeof(DictKey) + sizeof(RuntimeValue) + 2 * sizeof(void *)) +
+               entries.bucket_count() * sizeof(void *);
     }
     std::vector<DictKey> keys;
     std::unordered_map<DictKey, RuntimeValue> entries;
@@ -246,11 +278,13 @@ inline bool isValidDictKey(const RuntimeValue &key) {
 }
 
 inline void setDictEntry(Dictionary &dict, const RuntimeValue &key, const RuntimeValue &value) {
-    DictKey dk = toDictKey(key);
+    const size_t previous = dict.retainedBytes();
+    DictKey dk            = toDictKey(key);
     if (dict.entries.find(dk) == dict.entries.end()) {
         dict.keys.push_back(dk);
     }
     dict.entries[dk] = value;
+    dict.accountGrowth(previous);
 }
 
 // --- Execution Exceptions ---
@@ -306,6 +340,10 @@ public:
      */
     Environment(Environment *enclosing) : enclosing(enclosing) {
     }
+    size_t retainedBytes() const override {
+        return allocationSize +
+               values.size() * (sizeof(std::string) + sizeof(RuntimeValue) + 4 * sizeof(void *));
+    }
 
     /**
      * Define or update a variable in the current scope
@@ -313,7 +351,9 @@ public:
      * @param value The value to bind
      */
     void define(const std::string &name, RuntimeValue value) {
-        values[name] = value;
+        const size_t previous = retainedBytes();
+        values[name]          = value;
+        accountGrowth(previous);
     }
 
     /**
@@ -471,6 +511,10 @@ class UserClass : public Callable {
 
 public:
     void trace(GarbageCollector &gc) override;
+    size_t retainedBytes() const override {
+        return allocationSize + name.capacity() +
+               (methods.size() + defaultFields.size()) * (sizeof(std::string) + 5 * sizeof(void *));
+    }
     UserClass(const std::string &n, UserClass *s = nullptr);
     UserClass *getSuperclass() const;
     void setSuperclass(UserClass *s) {

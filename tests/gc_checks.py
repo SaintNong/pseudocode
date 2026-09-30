@@ -87,6 +87,29 @@ PRINT(garbage(60000))
     check(stats["live_objects"] < 20000, "deep graph does not remain rooted")
     print("100,000-edge graph survival and reclamation: passed")
 
+    # Few heap objects can own large buffers; their growth must trigger collection too.
+    for expression in ("[0] * n", "{}"):
+        populate = """
+    FOR i = 0 TO n - 1
+        values[i] = i
+    END FOR
+""" if expression == "{}" else ""
+        source = f"""
+FUNCTION buffer(n)
+    values = {expression}
+{populate}
+    RETURN values.length
+END buffer
+FOR repeat = 1 TO 8
+    PRINT(buffer(40000))
+END FOR
+"""
+        result, stats = execute(binary, source)
+        check(result.stdout.strip() == "\n".join(["40000"] * 8), "large buffer checksum")
+        check(stats["collections"] > 0 and stats["reclaimed"] > 0,
+              "large container buffers trigger GC even with few heap objects")
+    print("Array/dictionary buffer growth accounting: passed")
+
     # Repeated REPL errors must unwind the VM before later compilation/collection.
     source = """
 FUNCTION fail()

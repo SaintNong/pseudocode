@@ -18,6 +18,7 @@ struct HeapObject {
     virtual size_t retainedBytes() const {
         return allocationSize;
     }
+    void accountGrowth(size_t previousBytes);
 };
 
 class GCRoot;
@@ -65,12 +66,22 @@ public:
     }
 
     void mark(HeapObject *object);
+    // Buffer growth requests collection at the next safepoint, never immediately.
+    void accountAllocation(size_t bytes) {
+        bytesSinceCollection += bytes;
+    }
     void collect();
     void safepoint() {
         if (stress || bytesSinceCollection >= threshold)
             collect();
     }
 };
+
+inline void HeapObject::accountGrowth(size_t previousBytes) {
+    const size_t currentBytes = retainedBytes();
+    if (currentBytes > previousBytes)
+        GarbageCollector::current().accountAllocation(currentBytes - previousBytes);
+}
 
 template <typename T, typename... Args> T *gcNew(Args &&...args) {
     return GarbageCollector::current().make<T>(std::forward<Args>(args)...);
