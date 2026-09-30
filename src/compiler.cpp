@@ -5,13 +5,13 @@
 
 Compiler::Compiler(ErrorReporter &reporter, Compiler *enclosing, std::string fnName)
     : reporter(reporter), enclosing(enclosing) {
-    currentFn        = std::make_shared<CompiledFunction>();
-    currentFn->chunk = std::make_shared<Chunk>();
+    currentFn        = gcNew<CompiledFunction>();
+    currentFn->chunk = gcNew<Chunk>();
     currentFn->arity = 0;
     currentFn->name  = fnName;
 }
 
-std::shared_ptr<CompiledFunction> Compiler::compile(const std::vector<StmtPtr> &statements) {
+CompiledFunction *Compiler::compile(const std::vector<StmtPtr> &statements) {
     for (const auto &stmt : statements) {
         if (stmt) {
             compileStatement(stmt.get());
@@ -22,7 +22,7 @@ std::shared_ptr<CompiledFunction> Compiler::compile(const std::vector<StmtPtr> &
     return currentFn;
 }
 
-std::shared_ptr<CompiledFunction> Compiler::compileExpressionOnly(Expr *expr) {
+CompiledFunction *Compiler::compileExpressionOnly(Expr *expr) {
     compileExpression(expr);
     emitByte(OP_RETURN, 1);
     return currentFn;
@@ -498,8 +498,7 @@ void Compiler::compileFunctionStmt(FunctionStmt *stmt) {
     auto compiled = subCompiler.compile(stmt->body);
 
     RuntimeValue funcVal;
-    funcVal.value =
-        std::static_pointer_cast<Callable>(std::make_shared<UserFunction>(compiled, nullptr));
+    funcVal.value   = static_cast<Callable *>(gcNew<UserFunction>(compiled, nullptr));
     size_t constIdx = currentChunk().addConstant(funcVal);
 
     if (enclosing != nullptr) {
@@ -544,8 +543,7 @@ void Compiler::compileClassStmt(ClassStmt *stmt) {
                 auto compiledInit = subCompiler.compileExpressionOnly(assignment->value.get());
 
                 RuntimeValue initVal;
-                initVal.value = std::static_pointer_cast<Callable>(
-                    std::make_shared<UserFunction>(compiledInit, nullptr));
+                initVal.value = static_cast<Callable *>(gcNew<UserFunction>(compiledInit, nullptr));
                 size_t initConstIdx = currentChunk().addConstant(initVal);
 
                 emitByte(OP_CLOSURE, line);
@@ -575,8 +573,7 @@ void Compiler::compileClassStmt(ClassStmt *stmt) {
             auto compiledMethod = subCompiler.compile(funcStmt->body);
 
             RuntimeValue methodVal;
-            methodVal.value = std::static_pointer_cast<Callable>(
-                std::make_shared<UserFunction>(compiledMethod, nullptr));
+            methodVal.value = static_cast<Callable *>(gcNew<UserFunction>(compiledMethod, nullptr));
             size_t methodConstIdx = currentChunk().addConstant(methodVal);
 
             emitByte(OP_CLOSURE, line);

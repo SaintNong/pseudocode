@@ -70,6 +70,13 @@ add_test(
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests
 )
 
+add_test(NAME gc_checks
+    COMMAND python gc_checks.py $<TARGET_FILE:scsa>
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+add_test(NAME gc_stress_integration
+    COMMAND ${CMAKE_COMMAND} -E env SCSA_GC_STRESS=1 python tester.py $<TARGET_FILE:scsa>
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+
 # =========================================================
 # clang-format targets
 # =========================================================

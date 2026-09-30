@@ -6,14 +6,14 @@
 #include <random>
 
 Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
-    globals     = std::make_shared<Environment>();
+    globals     = gcNew<Environment>();
     environment = globals;
 
     // =========================================================================
     // SCSA Pseudocode Standard Library
     // ==========================================================================
 
-    auto inputNative = std::make_shared<NativeFunction>(
+    auto inputNative = gcNew<NativeFunction>(
         VARIADIC_ARITY, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
             if (args.size() > 0) {
                 std::cout << stringify(args[0]);
@@ -26,9 +26,9 @@ Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
             result.value = inputLine;
             return result;
         });
-    globals->define("INPUT", {std::static_pointer_cast<Callable>(inputNative)});
+    globals->define("INPUT", {static_cast<Callable *>(inputNative)});
 
-    auto printNative = std::make_shared<NativeFunction>(
+    auto printNative = gcNew<NativeFunction>(
         VARIADIC_ARITY, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
             for (size_t i = 0; i < args.size(); ++i) {
                 if (i > 0)
@@ -40,9 +40,9 @@ Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
             nullValue.value = Null{};
             return nullValue;
         });
-    globals->define("PRINT", {std::static_pointer_cast<Callable>(printNative)});
+    globals->define("PRINT", {static_cast<Callable *>(printNative)});
 
-    auto outputNative = std::make_shared<NativeFunction>(
+    auto outputNative = gcNew<NativeFunction>(
         VARIADIC_ARITY, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
             for (size_t i = 0; i < args.size(); ++i) {
                 if (i > 0)
@@ -53,10 +53,10 @@ Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
             nullValue.value = Null{};
             return nullValue;
         });
-    globals->define("OUTPUT", {std::static_pointer_cast<Callable>(outputNative)});
+    globals->define("OUTPUT", {static_cast<Callable *>(outputNative)});
 
-    auto intNative = std::make_shared<NativeFunction>(
-        1, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
+    auto intNative =
+        gcNew<NativeFunction>(1, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
             if (args.empty())
                 return {Null{}};
             const auto &val = args[0];
@@ -78,10 +78,10 @@ Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
             retVal.value = result;
             return retVal;
         });
-    globals->define("INT", {std::static_pointer_cast<Callable>(intNative)});
+    globals->define("INT", {static_cast<Callable *>(intNative)});
 
-    auto floatNative = std::make_shared<NativeFunction>(
-        1, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
+    auto floatNative =
+        gcNew<NativeFunction>(1, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
             if (args.empty())
                 return {Null{}};
             const auto &val = args[0];
@@ -103,10 +103,10 @@ Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
             retVal.value = result;
             return retVal;
         });
-    globals->define("FLOAT", {std::static_pointer_cast<Callable>(floatNative)});
+    globals->define("FLOAT", {static_cast<Callable *>(floatNative)});
 
-    auto stringNative = std::make_shared<NativeFunction>(
-        1, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
+    auto stringNative =
+        gcNew<NativeFunction>(1, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
             if (args.empty())
                 return {Null{}};
             std::string result = stringify(args[0]);
@@ -114,10 +114,10 @@ Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
             retVal.value = result;
             return retVal;
         });
-    globals->define("STRING", {std::static_pointer_cast<Callable>(stringNative)});
+    globals->define("STRING", {static_cast<Callable *>(stringNative)});
 
-    auto boolNative = std::make_shared<NativeFunction>(
-        1, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
+    auto boolNative =
+        gcNew<NativeFunction>(1, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
             if (args.empty())
                 return {Null{}};
             const auto &val = args[0];
@@ -138,10 +138,10 @@ Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
             retVal.value = result;
             return retVal;
         });
-    globals->define("BOOL", {std::static_pointer_cast<Callable>(boolNative)});
+    globals->define("BOOL", {static_cast<Callable *>(boolNative)});
 
-    auto randomNative = std::make_shared<NativeFunction>(
-        2, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
+    auto randomNative =
+        gcNew<NativeFunction>(2, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
             if (!args[0].is<int>() || !args[1].is<int>()) {
                 return {0};
             }
@@ -155,10 +155,10 @@ Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
             retVal.value = dis(gen);
             return retVal;
         });
-    globals->define("RANDOM", {std::static_pointer_cast<Callable>(randomNative)});
+    globals->define("RANDOM", {static_cast<Callable *>(randomNative)});
 
-    auto timeNative = std::make_shared<NativeFunction>(
-        0, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
+    auto timeNative =
+        gcNew<NativeFunction>(0, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
             (void) args;
             auto now = std::chrono::system_clock::now();
             auto duration =
@@ -167,10 +167,10 @@ Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
             retVal.value = static_cast<double>(duration.count()) / 1000.0;
             return retVal;
         });
-    globals->define("TIME", {std::static_pointer_cast<Callable>(timeNative)});
+    globals->define("TIME", {static_cast<Callable *>(timeNative)});
 
-    auto typeNative = std::make_shared<NativeFunction>(
-        1, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
+    auto typeNative =
+        gcNew<NativeFunction>(1, [](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
             if (args.empty())
                 return {"NULL"};
             const auto &val     = args[0];
@@ -185,21 +185,26 @@ Interpreter::Interpreter(ErrorReporter &reporterRef) : reporter(reporterRef) {
                 typeStr = "STRING";
             else if (val.is<Null>())
                 typeStr = "NULL";
-            else if (val.is<std::shared_ptr<std::vector<RuntimeValue>>>())
+            else if (val.is<ArrayPtr>())
                 typeStr = "ARRAY";
-            else if (val.is<std::shared_ptr<Dictionary>>())
+            else if (val.is<Dictionary *>())
                 typeStr = "DICTIONARY";
-            else if (val.is<std::shared_ptr<Callable>>())
+            else if (val.is<Callable *>())
                 typeStr = "CALLABLE";
-            else if (val.is<std::shared_ptr<Instance>>())
+            else if (val.is<Instance *>())
                 typeStr = "INSTANCE";
             RuntimeValue retVal;
             retVal.value = typeStr;
             return retVal;
         });
-    globals->define("TYPE", {std::static_pointer_cast<Callable>(typeNative)});
+    globals->define("TYPE", {static_cast<Callable *>(typeNative)});
 
-    vm = std::make_unique<VM>(*this, globals);
+    vm              = std::make_unique<VM>(*this, globals);
+    heap.traceRoots = [this](GarbageCollector &gc) {
+        gc.mark(globals);
+        gc.mark(environment);
+        vm->trace(gc);
+    };
 }
 
 void Interpreter::interpret(const std::vector<StmtPtr> &statements) {
@@ -220,8 +225,7 @@ RuntimeValue Interpreter::evaluate(Expr *expr) {
     return vm->run(compiled, {});
 }
 
-RuntimeValue Interpreter::runFunction(std::shared_ptr<CompiledFunction> compiledFn,
-                                      const std::vector<RuntimeValue> &args,
-                                      std::shared_ptr<Environment> closure) {
+RuntimeValue Interpreter::runFunction(CompiledFunction *compiledFn,
+                                      const std::vector<RuntimeValue> &args, Environment *closure) {
     return vm->run(compiledFn, args, closure);
 }

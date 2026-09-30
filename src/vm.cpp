@@ -4,6 +4,16 @@
 #include <algorithm>
 #include <cmath>
 
+void VM::trace(GarbageCollector &gc) const {
+    gc.mark(globals);
+    for (size_t i = 0; i < stackTop; ++i)
+        stack[i].trace(gc);
+    for (size_t i = 0; i < frameCount; ++i) {
+        gc.mark(frames[i].function);
+        gc.mark(frames[i].closure);
+    }
+}
+
 VM::VM(Interpreter &interpreter, EnvironmentPtr globals)
     : interpreter(interpreter), globals(globals) {
 }
@@ -64,18 +74,17 @@ bool VM::isEqual(const RuntimeValue &a, const RuntimeValue &b) const {
         return a.as<bool>() == b.as<bool>();
     if (a.is<std::string>())
         return a.as<std::string>() == b.as<std::string>();
-    if (a.is<std::shared_ptr<std::vector<RuntimeValue>>>()) {
-        return a.as<std::shared_ptr<std::vector<RuntimeValue>>>() ==
-               b.as<std::shared_ptr<std::vector<RuntimeValue>>>();
+    if (a.is<ArrayPtr>()) {
+        return a.as<ArrayPtr>() == b.as<ArrayPtr>();
     }
-    if (a.is<std::shared_ptr<Dictionary>>()) {
-        return a.as<std::shared_ptr<Dictionary>>() == b.as<std::shared_ptr<Dictionary>>();
+    if (a.is<Dictionary *>()) {
+        return a.as<Dictionary *>() == b.as<Dictionary *>();
     }
-    if (a.is<std::shared_ptr<Callable>>()) {
-        return a.as<std::shared_ptr<Callable>>() == b.as<std::shared_ptr<Callable>>();
+    if (a.is<Callable *>()) {
+        return a.as<Callable *>() == b.as<Callable *>();
     }
-    if (a.is<std::shared_ptr<Instance>>()) {
-        return a.as<std::shared_ptr<Instance>>() == b.as<std::shared_ptr<Instance>>();
+    if (a.is<Instance *>()) {
+        return a.as<Instance *>() == b.as<Instance *>();
     }
     return false;
 }
@@ -90,11 +99,14 @@ void VM::runtimeError(const std::string &message) {
     throw RuntimeError(Token{TOK_EOF, "", line, 0, 0}, message);
 }
 
-RuntimeValue VM::run(std::shared_ptr<CompiledFunction> function,
-                     const std::vector<RuntimeValue> &args, EnvironmentPtr closure) {
+RuntimeValue VM::run(CompiledFunction *function, const std::vector<RuntimeValue> &args,
+                     EnvironmentPtr closure) {
     size_t savedInitialFrameCount = runInitialFrameCount;
     size_t initialFrameCount      = frameCount;
-    runInitialFrameCount          = frameCount;
+    const size_t initialStackTop  = stackTop;
+    if (frameCount >= FRAMES_MAX)
+        runtimeError("Stack overflow (too many call frames).");
+    runInitialFrameCount = frameCount;
 
     // Push dummy callee for function callframe setup consistency
     push(RuntimeValue{Null{}});
@@ -114,6 +126,7 @@ RuntimeValue VM::run(std::shared_ptr<CompiledFunction> function,
     } catch (...) {
         // Reset frame count and stack on exception to prevent VM corruptions
         frameCount           = initialFrameCount;
+        stackTop             = initialStackTop;
         runInitialFrameCount = savedInitialFrameCount;
         throw;
     }
@@ -131,6 +144,7 @@ void VM::execute() {
 #define READ_CONSTANT() (frame->function->chunk->constants[READ_SHORT()])
 
     while (true) {
+        interpreter.heap.safepoint();
         uint8_t instruction = READ_BYTE();
         switch (instruction) {
         case OP_CONSTANT: {
@@ -158,11 +172,10 @@ void VM::execute() {
             RuntimeValue a = pop();
             if (a.is<std::string>() || b.is<std::string>()) {
                 push(RuntimeValue{stringify(a) + stringify(b)});
-            } else if (a.is<std::shared_ptr<std::vector<RuntimeValue>>>() &&
-                       b.is<std::shared_ptr<std::vector<RuntimeValue>>>()) {
-                auto arrA   = a.as<std::shared_ptr<std::vector<RuntimeValue>>>();
-                auto arrB   = b.as<std::shared_ptr<std::vector<RuntimeValue>>>();
-                auto newArr = std::make_shared<std::vector<RuntimeValue>>();
+            } else if (a.is<ArrayPtr>() && b.is<ArrayPtr>()) {
+                auto arrA   = a.as<ArrayPtr>();
+                auto arrB   = b.as<ArrayPtr>();
+                auto newArr = gcNew<Array>();
                 newArr->insert(newArr->end(), arrA->begin(), arrA->end());
                 newArr->insert(newArr->end(), arrB->begin(), arrB->end());
                 push(RuntimeValue{newArr});
@@ -211,9 +224,7 @@ void VM::execute() {
                         res += base;
                 }
                 push(RuntimeValue{res});
-            } else if (a.is<std::shared_ptr<std::vector<RuntimeValue>>>() ||
-                       b.is<std::shared_ptr<std::vector<RuntimeValue>>>()) {
-                using ArrayPtr  = std::shared_ptr<std::vector<RuntimeValue>>;
+            } else if (a.is<ArrayPtr>() || b.is<ArrayPtr>()) {
                 bool validLeft  = a.is<ArrayPtr>() && b.is<int>();
                 bool validRight = b.is<ArrayPtr>() && a.is<int>();
                 if (!validLeft && !validRight) {
@@ -221,7 +232,7 @@ void VM::execute() {
                 }
                 auto base = a.is<ArrayPtr>() ? a.as<ArrayPtr>() : b.as<ArrayPtr>();
                 int count = a.is<int>() ? a.as<int>() : b.as<int>();
-                auto res  = std::make_shared<std::vector<RuntimeValue>>();
+                auto res  = gcNew<Array>();
                 if (count > 0) {
                     res->reserve(base->size() * count);
                     for (int i = 0; i < count; ++i) {
@@ -364,8 +375,8 @@ void VM::execute() {
         case OP_IN: {
             RuntimeValue coll = pop();
             RuntimeValue item = pop();
-            if (coll.is<std::shared_ptr<std::vector<RuntimeValue>>>()) {
-                auto arr   = coll.as<std::shared_ptr<std::vector<RuntimeValue>>>();
+            if (coll.is<ArrayPtr>()) {
+                auto arr   = coll.as<ArrayPtr>();
                 bool found = false;
                 for (const auto &elem : *arr) {
                     if (isEqual(item, elem)) {
@@ -374,8 +385,8 @@ void VM::execute() {
                     }
                 }
                 push(RuntimeValue{found});
-            } else if (coll.is<std::shared_ptr<Dictionary>>()) {
-                auto dict = coll.as<std::shared_ptr<Dictionary>>();
+            } else if (coll.is<Dictionary *>()) {
+                auto dict = coll.as<Dictionary *>();
                 if (!isValidDictKey(item)) {
                     runtimeError("Dictionary keys must be strings, integers, or booleans.");
                 }
@@ -464,8 +475,8 @@ void VM::execute() {
             std::string name    = READ_CONSTANT().as<std::string>();
             RuntimeValue object = pop();
 
-            if (object.is<std::shared_ptr<Instance>>()) {
-                auto instance = object.as<std::shared_ptr<Instance>>();
+            if (object.is<Instance *>()) {
+                auto instance = object.as<Instance *>();
 
                 // Check fields first
                 if (instance->fields->count(name)) {
@@ -474,11 +485,11 @@ void VM::execute() {
                 }
 
                 // Determine which class to look up methods on
-                std::shared_ptr<UserClass> lookupClass;
+                UserClass *lookupClass;
                 if (instance->superclassContext) {
-                    lookupClass = std::dynamic_pointer_cast<UserClass>(instance->superclassContext);
+                    lookupClass = dynamic_cast<UserClass *>(instance->superclassContext);
                 } else {
-                    lookupClass = std::dynamic_pointer_cast<UserClass>(instance->klass);
+                    lookupClass = dynamic_cast<UserClass *>(instance->klass);
                 }
 
                 if (lookupClass) {
@@ -488,16 +499,17 @@ void VM::execute() {
                             runtimeError("Class '" + lookupClass->toString() +
                                          "' has no superclass.");
                         }
-                        auto superMethod = std::make_shared<NativeFunction>(
+                        auto superMethod = gcNew<NativeFunction>(
                             0,
                             [instance, lookupClass](
                                 Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
                                 (void) args;
-                                auto superInstance = std::make_shared<Instance>(
-                                    *instance, lookupClass->getSuperclass());
+                                auto superInstance =
+                                    gcNew<Instance>(*instance, lookupClass->getSuperclass());
                                 return {superInstance};
                             });
-                        push(RuntimeValue{std::static_pointer_cast<Callable>(superMethod)});
+                        superMethod->capture(object);
+                        push(RuntimeValue{static_cast<Callable *>(superMethod)});
                         break;
                     }
 
@@ -509,17 +521,18 @@ void VM::execute() {
                 }
 
                 runtimeError("Undefined property '" + name + "'.");
-            } else if (object.is<std::shared_ptr<std::vector<RuntimeValue>>>()) {
-                auto arr = object.as<std::shared_ptr<std::vector<RuntimeValue>>>();
+            } else if (object.is<ArrayPtr>()) {
+                auto arr = object.as<ArrayPtr>();
                 if (name == "append") {
-                    auto appendMethod = std::make_shared<NativeFunction>(
+                    auto appendMethod = gcNew<NativeFunction>(
                         1, [arr](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
                             arr->push_back(args[0]);
                             return {arr};
                         });
-                    push(RuntimeValue{std::static_pointer_cast<Callable>(appendMethod)});
+                    appendMethod->capture(object);
+                    push(RuntimeValue{static_cast<Callable *>(appendMethod)});
                 } else if (name == "slice") {
-                    auto sliceMethod = std::make_shared<NativeFunction>(
+                    auto sliceMethod = gcNew<NativeFunction>(
                         2, [arr](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
                             if (!args[0].is<int>() || !args[1].is<int>()) {
                                 throw RuntimeError(Token{TOK_IDENTIFIER, "slice", 0, 0, 0},
@@ -532,7 +545,7 @@ void VM::execute() {
                                 start = 0;
                             if (end >= size)
                                 end = size - 1;
-                            auto res = std::make_shared<std::vector<RuntimeValue>>();
+                            auto res = gcNew<Array>();
                             if (start <= end && start < size) {
                                 for (int i = start; i <= end; ++i) {
                                     res->push_back((*arr)[i]);
@@ -540,38 +553,41 @@ void VM::execute() {
                             }
                             return {res};
                         });
-                    push(RuntimeValue{std::static_pointer_cast<Callable>(sliceMethod)});
+                    sliceMethod->capture(object);
+                    push(RuntimeValue{static_cast<Callable *>(sliceMethod)});
                 } else if (name == "length") {
                     push(RuntimeValue{static_cast<int>(arr->size())});
                 } else {
                     runtimeError("Unknown array property '" + name + "'.");
                 }
-            } else if (object.is<std::shared_ptr<Dictionary>>()) {
-                auto dict = object.as<std::shared_ptr<Dictionary>>();
+            } else if (object.is<Dictionary *>()) {
+                auto dict = object.as<Dictionary *>();
                 if (name == "keys") {
-                    auto keysMethod = std::make_shared<NativeFunction>(
+                    auto keysMethod = gcNew<NativeFunction>(
                         0, [dict](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
                             (void) args;
-                            auto keys = std::make_shared<std::vector<RuntimeValue>>();
+                            auto keys = gcNew<Array>();
                             for (const auto &k : dict->keys) {
                                 keys->push_back(fromDictKey(k));
                             }
                             return {keys};
                         });
-                    push(RuntimeValue{std::static_pointer_cast<Callable>(keysMethod)});
+                    keysMethod->capture(object);
+                    push(RuntimeValue{static_cast<Callable *>(keysMethod)});
                 } else if (name == "values") {
-                    auto valsMethod = std::make_shared<NativeFunction>(
+                    auto valsMethod = gcNew<NativeFunction>(
                         0, [dict](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
                             (void) args;
-                            auto vals = std::make_shared<std::vector<RuntimeValue>>();
+                            auto vals = gcNew<Array>();
                             for (const auto &k : dict->keys) {
                                 vals->push_back(dict->entries.at(k));
                             }
                             return {vals};
                         });
-                    push(RuntimeValue{std::static_pointer_cast<Callable>(valsMethod)});
+                    valsMethod->capture(object);
+                    push(RuntimeValue{static_cast<Callable *>(valsMethod)});
                 } else if (name == "get") {
-                    auto getMethod = std::make_shared<NativeFunction>(
+                    auto getMethod = gcNew<NativeFunction>(
                         VARIADIC_ARITY,
                         [dict](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
                             if (args.size() < 1 || args.size() > 2) {
@@ -596,9 +612,10 @@ void VM::execute() {
                             nullVal.value = Null{};
                             return nullVal;
                         });
-                    push(RuntimeValue{std::static_pointer_cast<Callable>(getMethod)});
+                    getMethod->capture(object);
+                    push(RuntimeValue{static_cast<Callable *>(getMethod)});
                 } else if (name == "remove") {
-                    auto removeMethod = std::make_shared<NativeFunction>(
+                    auto removeMethod = gcNew<NativeFunction>(
                         1, [dict](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
                             if (!isValidDictKey(args[0])) {
                                 throw RuntimeError(
@@ -614,7 +631,8 @@ void VM::execute() {
                             nullVal.value = Null{};
                             return nullVal;
                         });
-                    push(RuntimeValue{std::static_pointer_cast<Callable>(removeMethod)});
+                    removeMethod->capture(object);
+                    push(RuntimeValue{static_cast<Callable *>(removeMethod)});
                 } else if (name == "length") {
                     push(RuntimeValue{static_cast<int>(dict->keys.size())});
                 } else {
@@ -625,7 +643,7 @@ void VM::execute() {
                 if (name == "length") {
                     push(RuntimeValue{static_cast<int>(s.length())});
                 } else if (name == "slice") {
-                    auto sliceMethod = std::make_shared<NativeFunction>(
+                    auto sliceMethod = gcNew<NativeFunction>(
                         2, [s](Interpreter &, std::vector<RuntimeValue> args) -> RuntimeValue {
                             if (!args[0].is<int>() || !args[1].is<int>()) {
                                 throw RuntimeError(Token{TOK_IDENTIFIER, "slice", 0, 0, 0},
@@ -644,7 +662,8 @@ void VM::execute() {
                             }
                             return {res};
                         });
-                    push(RuntimeValue{std::static_pointer_cast<Callable>(sliceMethod)});
+                    sliceMethod->capture(object);
+                    push(RuntimeValue{static_cast<Callable *>(sliceMethod)});
                 } else {
                     runtimeError("Unknown string property '" + name + "'.");
                 }
@@ -658,10 +677,10 @@ void VM::execute() {
             std::string name    = READ_CONSTANT().as<std::string>();
             RuntimeValue val    = pop();
             RuntimeValue object = pop();
-            if (!object.is<std::shared_ptr<Instance>>()) {
+            if (!object.is<Instance *>()) {
                 runtimeError("Only instances have fields.");
             }
-            object.as<std::shared_ptr<Instance>>()->set(Token{TOK_IDENTIFIER, name, 0, 0, 0}, val);
+            object.as<Instance *>()->set(Token{TOK_IDENTIFIER, name, 0, 0, 0}, val);
             push(val);
             break;
         }
@@ -670,18 +689,18 @@ void VM::execute() {
             RuntimeValue idxVal    = pop();
             RuntimeValue container = pop();
 
-            if (container.is<std::shared_ptr<std::vector<RuntimeValue>>>()) {
+            if (container.is<ArrayPtr>()) {
                 if (!idxVal.is<int>()) {
                     runtimeError("Array index must be an integer.");
                 }
-                auto arr = container.as<std::shared_ptr<std::vector<RuntimeValue>>>();
+                auto arr = container.as<ArrayPtr>();
                 int idx  = idxVal.as<int>();
                 if (idx < 0 || idx >= static_cast<int>(arr->size())) {
                     runtimeError("Array index out of bounds.");
                 }
                 push((*arr)[idx]);
-            } else if (container.is<std::shared_ptr<Dictionary>>()) {
-                auto dict = container.as<std::shared_ptr<Dictionary>>();
+            } else if (container.is<Dictionary *>()) {
+                auto dict = container.as<Dictionary *>();
                 if (!isValidDictKey(idxVal)) {
                     runtimeError("Dictionary keys must be strings, integers, or booleans.");
                 }
@@ -711,18 +730,18 @@ void VM::execute() {
             RuntimeValue idxVal    = pop();
             RuntimeValue container = pop();
 
-            if (container.is<std::shared_ptr<std::vector<RuntimeValue>>>()) {
+            if (container.is<ArrayPtr>()) {
                 if (!idxVal.is<int>()) {
                     runtimeError("Array index must be an integer.");
                 }
-                auto arr = container.as<std::shared_ptr<std::vector<RuntimeValue>>>();
+                auto arr = container.as<ArrayPtr>();
                 int idx  = idxVal.as<int>();
                 if (idx < 0 || idx >= static_cast<int>(arr->size())) {
                     runtimeError("Array index out of bounds.");
                 }
                 (*arr)[idx] = val;
-            } else if (container.is<std::shared_ptr<Dictionary>>()) {
-                auto dict = container.as<std::shared_ptr<Dictionary>>();
+            } else if (container.is<Dictionary *>()) {
+                auto dict = container.as<Dictionary *>();
                 if (!isValidDictKey(idxVal)) {
                     runtimeError("Dictionary keys must be strings, integers, or booleans.");
                 }
@@ -736,7 +755,7 @@ void VM::execute() {
 
         case OP_ARRAY: {
             uint16_t count = READ_SHORT();
-            auto arr       = std::make_shared<std::vector<RuntimeValue>>();
+            auto arr       = gcNew<Array>();
             arr->resize(count);
             for (int i = count - 1; i >= 0; --i) {
                 (*arr)[i] = pop();
@@ -747,7 +766,7 @@ void VM::execute() {
 
         case OP_DICT: {
             uint16_t count = READ_SHORT();
-            auto dict      = std::make_shared<Dictionary>();
+            auto dict      = gcNew<Dictionary>();
             // Entries on stack are [key1, val1, key2, val2, ...]
             // So we pop in reverse: pop val, then pop key
             std::vector<std::pair<RuntimeValue, RuntimeValue>> temp(count);
@@ -776,11 +795,11 @@ void VM::execute() {
                 runtimeError("Undefined class '" + className + "'.");
             }
 
-            if (!classVal.is<std::shared_ptr<Callable>>()) {
+            if (!classVal.is<Callable *>()) {
                 runtimeError("Can only instantiate classes.");
             }
 
-            auto klass = classVal.as<std::shared_ptr<Callable>>();
+            auto klass = classVal.as<Callable *>();
 
             // Validate constructor arity
             if (klass->arity() != VARIADIC_ARITY && klass->arity() != argCount) {
@@ -801,11 +820,11 @@ void VM::execute() {
             uint8_t argCount    = READ_BYTE();
             RuntimeValue callee = peek(argCount);
 
-            if (!callee.is<std::shared_ptr<Callable>>()) {
+            if (!callee.is<Callable *>()) {
                 runtimeError("Can only call functions and classes.");
             }
 
-            std::shared_ptr<Callable> callable = callee.as<std::shared_ptr<Callable>>();
+            Callable *callable = callee.as<Callable *>();
 
             // Validate arity
             if (callable->arity() != VARIADIC_ARITY && callable->arity() != argCount) {
@@ -814,7 +833,7 @@ void VM::execute() {
             }
 
             // Check if it's a UserFunction (bytecode function)
-            auto userFunc = std::dynamic_pointer_cast<UserFunction>(callable);
+            auto userFunc = dynamic_cast<UserFunction *>(callable);
             if (userFunc) {
                 auto compiled = userFunc->getCompiledFunction();
                 if (frameCount >= FRAMES_MAX) {
@@ -835,6 +854,11 @@ void VM::execute() {
                     args[i] = pop();
                 }
                 pop(); // pop callee
+                GCRoot callRoot([&](GarbageCollector &gc) {
+                    callee.trace(gc);
+                    for (const auto &argument : args)
+                        argument.trace(gc);
+                });
                 push(callable->call(interpreter, args));
             }
             break;
@@ -934,12 +958,12 @@ void VM::execute() {
             uint16_t slot         = READ_SHORT();
             RuntimeValue iterable = pop();
 
-            auto flatArray = std::make_shared<std::vector<RuntimeValue>>();
+            auto flatArray = gcNew<Array>();
 
-            if (iterable.is<std::shared_ptr<std::vector<RuntimeValue>>>()) {
-                flatArray = iterable.as<std::shared_ptr<std::vector<RuntimeValue>>>();
-            } else if (iterable.is<std::shared_ptr<Dictionary>>()) {
-                auto dict = iterable.as<std::shared_ptr<Dictionary>>();
+            if (iterable.is<ArrayPtr>()) {
+                flatArray = iterable.as<ArrayPtr>();
+            } else if (iterable.is<Dictionary *>()) {
+                auto dict = iterable.as<Dictionary *>();
                 for (const auto &k : dict->keys) {
                     flatArray->push_back(fromDictKey(k));
                 }
@@ -970,10 +994,9 @@ void VM::execute() {
             uint16_t slot       = READ_SHORT();
             uint16_t jumpOffset = READ_SHORT();
 
-            auto flatArray =
-                stack[frame->slotsBase + slot + 1].as<std::shared_ptr<std::vector<RuntimeValue>>>();
-            int index = stack[frame->slotsBase + slot + 2].as<int>();
-            int size  = stack[frame->slotsBase + slot + 3].as<int>();
+            auto flatArray = stack[frame->slotsBase + slot + 1].as<ArrayPtr>();
+            int index      = stack[frame->slotsBase + slot + 2].as<int>();
+            int size       = stack[frame->slotsBase + slot + 3].as<int>();
 
             int nextIndex = index + 1;
             if (nextIndex < size) {
@@ -986,8 +1009,8 @@ void VM::execute() {
 
         case OP_CLASS: {
             std::string className = READ_CONSTANT().as<std::string>();
-            auto klass            = std::make_shared<UserClass>(className, nullptr);
-            push(RuntimeValue{std::static_pointer_cast<Callable>(klass)});
+            auto klass            = gcNew<UserClass>(className, nullptr);
+            push(RuntimeValue{static_cast<Callable *>(klass)});
             break;
         }
 
@@ -995,19 +1018,17 @@ void VM::execute() {
             RuntimeValue superclassVal = pop();
             RuntimeValue subclassVal   = peek(0);
 
-            if (!superclassVal.is<std::shared_ptr<Callable>>()) {
+            if (!superclassVal.is<Callable *>()) {
                 runtimeError("Superclass must be a class.");
             }
-            auto superclass =
-                std::dynamic_pointer_cast<UserClass>(superclassVal.as<std::shared_ptr<Callable>>());
+            auto superclass = dynamic_cast<UserClass *>(superclassVal.as<Callable *>());
             if (!superclass) {
                 runtimeError("Superclass must be a user-defined class.");
             }
-            auto subclass =
-                std::dynamic_pointer_cast<UserClass>(subclassVal.as<std::shared_ptr<Callable>>());
+            auto subclass = dynamic_cast<UserClass *>(subclassVal.as<Callable *>());
 
             // Cyclic inheritance check
-            std::shared_ptr<UserClass> tracer = superclass;
+            UserClass *tracer = superclass;
             while (tracer != nullptr) {
                 if (tracer->getName() == subclass->getName()) {
                     runtimeError("Cycle detected in inheritance chain.");
@@ -1025,9 +1046,8 @@ void VM::execute() {
             RuntimeValue methodVal = pop();
             RuntimeValue classVal  = peek(0);
 
-            auto klass =
-                std::dynamic_pointer_cast<UserClass>(classVal.as<std::shared_ptr<Callable>>());
-            klass->addMethod(methodName, methodVal.as<std::shared_ptr<Callable>>());
+            auto klass = dynamic_cast<UserClass *>(classVal.as<Callable *>());
+            klass->addMethod(methodName, methodVal.as<Callable *>());
             break;
         }
 
@@ -1036,10 +1056,8 @@ void VM::execute() {
             RuntimeValue initVal  = pop();
             RuntimeValue classVal = peek(0);
 
-            auto klass =
-                std::dynamic_pointer_cast<UserClass>(classVal.as<std::shared_ptr<Callable>>());
-            auto userFunc =
-                std::dynamic_pointer_cast<UserFunction>(initVal.as<std::shared_ptr<Callable>>());
+            auto klass    = dynamic_cast<UserClass *>(classVal.as<Callable *>());
+            auto userFunc = dynamic_cast<UserFunction *>(initVal.as<Callable *>());
             klass->addField(attrName, userFunc->getCompiledFunction());
             break;
         }

@@ -1,0 +1,15 @@
+# Exercises callable values and repeated user-function calls.
+FUNCTION transform(value)
+    RETURN value * 3 + 1
+END transform
+
+FUNCTION function_calls(n)
+    checksum = 0
+    FOR i = 0 TO n - 1
+        checksum = checksum + transform(1)
+    END FOR
+    RETURN checksum
+END function_calls
+
+checksum = function_calls(100000)
+PRINT("Checksum: " + STRING(checksum))
