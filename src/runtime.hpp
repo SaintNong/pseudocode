@@ -5,7 +5,9 @@
 #include <map>
 #include <memory>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -32,22 +34,103 @@ using Null = std::monostate;
 
 // --- Runtime Value System ---
 
+using ArrayPtr = std::shared_ptr<std::vector<struct RuntimeValue>>;
+using CallablePtr = std::shared_ptr<Callable>;
+using InstancePtr = std::shared_ptr<Instance>;
+
 /**
- * Value Variant
- * A variant type that can hold any valid runtime value in the Pseudocode language.
- * This includes primitive types (int, double, bool, string), collections (arrays),
- * and object-oriented constructs (callables, instances).
+ * Compact value storage: primitives are inline, while all heap-backed values
+ * share a single pointer-sized alternative. RuntimeValue retains the same
+ * typed access interface so the VM and language semantics stay unchanged.
  */
-using Value = std::variant<Null,                                              // null
-                           int,                                               // integer
-                           double,                                            // decimal
-                           bool,                                              // boolean
-                           std::string,                                       // string
-                           std::shared_ptr<std::vector<struct RuntimeValue>>, // Array (shared)
-                           std::shared_ptr<Dictionary>,                       // Dictionary (shared)
-                           std::shared_ptr<Callable>,                         // Function/Class
-                           std::shared_ptr<Instance>                          // Object Instance
-                           >;
+class Value {
+public:
+    using HeapPayload = std::variant<std::string, ArrayPtr, std::shared_ptr<Dictionary>,
+                                     CallablePtr, InstancePtr>;
+
+private:
+    using HeapPtr = std::shared_ptr<HeapPayload>;
+    using Storage = std::variant<Null, int, double, bool, HeapPtr>;
+    Storage storage{Null{}};
+
+    template <typename T> static constexpr bool isHeapType =
+        std::is_same_v<T, std::string> || std::is_same_v<T, ArrayPtr> ||
+        std::is_same_v<T, std::shared_ptr<Dictionary>> || std::is_same_v<T, CallablePtr> ||
+        std::is_same_v<T, InstancePtr>;
+
+    template <typename T> void assign(T &&input) {
+        using U = std::decay_t<T>;
+        if constexpr (std::is_same_v<U, Null> || std::is_same_v<U, int> ||
+                      std::is_same_v<U, double> || std::is_same_v<U, bool>) {
+            storage = std::forward<T>(input);
+        } else if constexpr (std::is_same_v<U, std::string> ||
+                             std::is_convertible_v<T, std::string>) {
+            storage = std::make_shared<HeapPayload>(
+                std::in_place_type<std::string>, std::string(std::forward<T>(input)));
+        } else if constexpr (std::is_same_v<U, ArrayPtr> ||
+                             std::is_same_v<U, std::shared_ptr<Dictionary>> ||
+                             std::is_same_v<U, InstancePtr> ||
+                             std::is_convertible_v<T, CallablePtr>) {
+            using HeapType = std::conditional_t<std::is_convertible_v<T, CallablePtr>,
+                                                CallablePtr, U>;
+            storage = std::make_shared<HeapPayload>(
+                std::in_place_type<HeapType>, HeapType(std::forward<T>(input)));
+        } else {
+            static_assert(!sizeof(U), "Unsupported RuntimeValue alternative");
+        }
+    }
+
+public:
+    Value() = default;
+    Value(const Value &) = default;
+    Value(Value &&) noexcept = default;
+    Value &operator=(const Value &) = default;
+    Value &operator=(Value &&) noexcept = default;
+
+    template <typename T,
+              typename U = std::decay_t<T>,
+              std::enable_if_t<!std::is_same_v<U, Value>, int> = 0>
+    Value(T &&input) {
+        assign(std::forward<T>(input));
+    }
+
+    template <typename T,
+              typename U = std::decay_t<T>,
+              std::enable_if_t<!std::is_same_v<U, Value>, int> = 0>
+    Value &operator=(T &&input) {
+        assign(std::forward<T>(input));
+        return *this;
+    }
+
+    size_t index() const {
+        if (storage.index() != 4)
+            return storage.index();
+        return std::get<HeapPtr>(storage)->index() + 4;
+    }
+
+    template <typename T> bool holds() const {
+        if constexpr (isHeapType<T>) {
+            return storage.index() == 4 &&
+                   std::holds_alternative<T>(*std::get<HeapPtr>(storage));
+        } else {
+            return std::holds_alternative<T>(storage);
+        }
+    }
+
+    template <typename T> T &get() {
+        if constexpr (isHeapType<T>)
+            return std::get<T>(*std::get<HeapPtr>(storage));
+        else
+            return std::get<T>(storage);
+    }
+
+    template <typename T> const T &get() const {
+        if constexpr (isHeapType<T>)
+            return std::get<T>(*std::get<HeapPtr>(storage));
+        else
+            return std::get<T>(storage);
+    }
+};
 
 /**
  * RuntimeValue Wrapper
@@ -63,7 +146,7 @@ struct RuntimeValue {
      * @return true if the variant holds type T
      */
     template <typename T> bool is() const {
-        return std::holds_alternative<T>(value);
+        return value.template holds<T>();
     }
 
     /**
@@ -72,7 +155,7 @@ struct RuntimeValue {
      * @return Const reference to the value as type T
      */
     template <typename T> const T &as() const {
-        return std::get<T>(value);
+        return value.template get<T>();
     }
 
     /**
@@ -81,7 +164,7 @@ struct RuntimeValue {
      * @return Reference to the value as type T
      */
     template <typename T> T &as() {
-        return std::get<T>(value);
+        return value.template get<T>();
     }
 };
 
